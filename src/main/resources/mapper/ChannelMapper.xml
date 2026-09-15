@@ -1,0 +1,93 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.buzz.relay.store.ChannelMapper">
+
+    <!-- ── Channel ── -->
+
+    <resultMap id="channelRowMap" type="com.buzz.relay.store.ChannelRow">
+        <id     property="id"             column="id"/>
+        <result property="channelId"      column="channel_id"/>
+        <result property="name"           column="name"/>
+        <result property="channelType"   column="channel_type"/>
+        <result property="visibility"    column="visibility"/>
+        <result property="description"   column="description"/>
+        <result property="archived"       column="archived"/>
+        <result property="createdAtMs"    column="created_at_ms"/>
+    </resultMap>
+
+    <resultMap id="memberRowMap" type="com.buzz.relay.store.ChannelMemberRow">
+        <id     property="id"            column="id"/>
+        <result property="channelId"     column="channel_id"/>
+        <result property="agentId"       column="agent_id"/>
+        <result property="role"          column="role"/>
+        <result property="name"          column="name"/>
+        <result property="addedAtMs"     column="added_at_ms"/>
+    </resultMap>
+
+    <insert id="insertChannel" parameterType="com.buzz.relay.store.ChannelRow">
+        INSERT INTO relay_channels (channel_id, name, channel_type, visibility, description, archived, created_at_ms)
+        VALUES (#{row.channelId}, #{row.name}, #{row.channelType}, #{row.visibility}, #{row.description}, #{row.archived}, #{row.createdAtMs})
+    </insert>
+
+    <select id="findChannelById" resultMap="channelRowMap">
+        SELECT * FROM relay_channels WHERE channel_id = #{channelId}
+    </select>
+
+    <update id="updateChannel" parameterType="com.buzz.relay.store.ChannelRow">
+        UPDATE relay_channels
+        SET name = #{row.name},
+            channel_type = #{row.channelType},
+            visibility = #{row.visibility},
+            description = #{row.description},
+            archived = #{row.archived}
+        WHERE channel_id = #{row.channelId}
+    </update>
+
+    <select id="findChannelsByAgent" resultMap="channelRowMap">
+        SELECT c.* FROM relay_channels c
+        INNER JOIN relay_channel_members m ON m.channel_id = c.channel_id
+        WHERE m.agent_id = #{agentId} AND c.archived = FALSE
+    </select>
+
+    <!-- ── Member ── -->
+
+    <insert id="insertMember" parameterType="com.buzz.relay.store.ChannelMemberRow">
+        INSERT IGNORE INTO relay_channel_members (channel_id, agent_id, role, name, added_at_ms)
+        VALUES (#{row.channelId}, #{row.agentId}, #{row.role}, #{row.name}, #{row.addedAtMs})
+    </insert>
+
+    <delete id="deleteMember">
+        DELETE FROM relay_channel_members WHERE channel_id = #{channelId} AND agent_id = #{agentId}
+    </delete>
+
+    <select id="findMembers" resultMap="memberRowMap">
+        SELECT * FROM relay_channel_members WHERE channel_id = #{channelId}
+    </select>
+
+    <select id="findMember" resultMap="memberRowMap">
+        SELECT * FROM relay_channel_members WHERE channel_id = #{channelId} AND agent_id = #{agentId}
+    </select>
+
+    <!-- ── Agent ── -->
+
+    <insert id="insertAgent">
+        INSERT IGNORE INTO relay_agents (agent_id, sandbox_id, capabilities, rules, registered_at_ms, status, active_tasks)
+        VALUES (#{agentId}, #{sandboxId}, #{capabilities}, #{rules}, #{registeredAtMs}, 'idle', 0)
+    </insert>
+
+    <update id="updateHeartbeat">
+        UPDATE relay_agents
+        SET last_heartbeat_ms = #{lastHeartbeatMs},
+            status = #{status},
+            active_tasks = #{activeTasks}
+        WHERE agent_id = #{agentId}
+    </update>
+
+    <select id="findAllAgents" resultType="java.util.Map">
+        SELECT agent_id AS agentId, status, active_tasks AS activeTasks,
+               registered_at_ms AS registeredAtMs, last_heartbeat_ms AS lastHeartbeatMs
+        FROM relay_agents
+    </select>
+
+</mapper>

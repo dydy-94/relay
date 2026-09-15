@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.buzz.relay.store.EnvelopeMapper">
+
+    <resultMap id="envelopeRowMap" type="com.buzz.relay.store.EnvelopeRow">
+        <id     property="id"                 column="id"/>
+        <result property="envelopeId"         column="envelope_id"/>
+        <result property="channelId"          column="channel_id"/>
+        <result property="projectId"          column="project_id"/>
+        <result property="topicId"            column="topic_id"/>
+        <result property="parentEnvelopeId"  column="parent_envelope_id"/>
+        <result property="rootEnvelopeId"     column="root_envelope_id"/>
+        <result property="senderId"           column="sender_id"/>
+        <result property="senderRole"         column="sender_role"/>
+        <result property="kind"               column="kind"/>
+        <result property="mentions"           column="mentions"/>
+        <result property="payload"            column="payload"/>
+        <result property="metadata"           column="metadata"/>
+        <result property="traceId"            column="trace_id"/>
+        <result property="createdAtMs"        column="created_at_ms"/>
+        <result property="receivedAtMs"       column="received_at_ms"/>
+    </resultMap>
+
+    <insert id="insert" parameterType="com.buzz.relay.store.EnvelopeRow">
+        INSERT INTO relay_envelopes (envelope_id, channel_id, project_id, topic_id,
+                                     parent_envelope_id, root_envelope_id,
+                                     sender_id, sender_role, kind,
+                                     mentions, payload, metadata, trace_id,
+                                     created_at_ms, received_at_ms)
+        VALUES (#{row.envelopeId}, #{row.channelId}, #{row.projectId}, #{row.topicId},
+                #{row.parentEnvelopeId}, #{row.rootEnvelopeId},
+                #{row.senderId}, #{row.senderRole}, #{row.kind},
+                #{row.mentions}, #{row.payload}, #{row.metadata}, #{row.traceId},
+                #{row.createdAtMs}, #{row.receivedAtMs})
+    </insert>
+
+    <select id="findById" resultMap="envelopeRowMap">
+        SELECT * FROM relay_envelopes WHERE envelope_id = #{envelopeId}
+    </select>
+
+    <select id="findHistory" resultMap="envelopeRowMap">
+        SELECT * FROM relay_envelopes
+        WHERE channel_id = #{channelId}
+        <if test="rootEnvelopeId != null and rootEnvelopeId != ''">
+            AND root_envelope_id = #{rootEnvelopeId}
+        </if>
+        ORDER BY created_at_ms ASC
+        LIMIT #{limit}
+    </select>
+
+    <select id="findReplay" resultMap="envelopeRowMap">
+        SELECT * FROM relay_envelopes
+        WHERE channel_id = #{channelId}
+          AND created_at_ms &gt; #{sinceMs}
+        ORDER BY created_at_ms ASC
+        LIMIT #{limit}
+    </select>
+
+</mapper>
