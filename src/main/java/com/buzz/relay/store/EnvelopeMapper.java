@@ -15,12 +15,13 @@ public interface EnvelopeMapper {
     EnvelopeRow findById(@Param("envelopeId") String envelopeId);
 
     /**
-     * 按 channel_id 查询历史信封，可选按 root_envelope_id 过滤.
-     * 按 created_at_ms 升序，取最新 limit 条.
+     * 按 channel_id 分页查询历史信封（dashboard 消息查看用）.
+     * 按 created_at_ms 倒序（最新在前），beforeMs 为游标（只取更早的），limit 控制页大小.
      */
-    List<EnvelopeRow> findHistory(@Param("channelId") String channelId,
-                                   @Param("rootEnvelopeId") String rootEnvelopeId,
-                                   @Param("limit") int limit);
+    List<EnvelopeRow> findHistoryPage(@Param("channelId") String channelId,
+                                       @Param("rootEnvelopeId") String rootEnvelopeId,
+                                       @Param("beforeMs") Long beforeMs,
+                                       @Param("limit") int limit);
 
     /**
      * 按 channel_id + since_ms 回放历史信封（created_at_ms > since_ms）.

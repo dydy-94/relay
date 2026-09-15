@@ -39,13 +39,16 @@
         SELECT * FROM relay_envelopes WHERE envelope_id = #{envelopeId}
     </select>
 
-    <select id="findHistory" resultMap="envelopeRowMap">
+    <select id="findHistoryPage" resultMap="envelopeRowMap">
         SELECT * FROM relay_envelopes
         WHERE channel_id = #{channelId}
         <if test="rootEnvelopeId != null and rootEnvelopeId != ''">
             AND root_envelope_id = #{rootEnvelopeId}
         </if>
-        ORDER BY created_at_ms ASC
+        <if test="beforeMs != null">
+            AND created_at_ms &lt; #{beforeMs}
+        </if>
+        ORDER BY created_at_ms DESC
         LIMIT #{limit}
     </select>
 

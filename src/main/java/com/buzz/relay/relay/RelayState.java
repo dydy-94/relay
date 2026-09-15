@@ -185,10 +185,12 @@ public class RelayState {
     }
 
     /**
-     * 查询历史信封（REST /api/history 用）.
+     * 分页查询历史信封（dashboard 消息查看用）.
+     * 倒序（最新在前），beforeMs 为游标.
      */
-    public List<Map<String, Object>> getHistory(String channelId, String rootEnvelopeId, int limit) {
-        List<EnvelopeRow> rows = envelopeMapper.findHistory(channelId, rootEnvelopeId, limit);
+    public List<Map<String, Object>> getHistoryPage(String channelId, String rootEnvelopeId,
+                                                     Long beforeMs, int limit) {
+        List<EnvelopeRow> rows = envelopeMapper.findHistoryPage(channelId, rootEnvelopeId, beforeMs, limit);
         List<Map<String, Object>> result = new ArrayList<>();
         for (EnvelopeRow row : rows) {
             result.add(rowToEnvelopeMap(row));

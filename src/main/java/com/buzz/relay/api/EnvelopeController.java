@@ -58,8 +58,12 @@ public class EnvelopeController {
     public Map<String, Object> history(
             @RequestParam String channel_id,
             @RequestParam(required = false) String root_envelope_id,
-            @RequestParam(defaultValue = "20") int limit) {
-        List<Map<String, Object>> envs = state.getHistory(channel_id, root_envelope_id, limit);
-        return Map.of("envelopes", envs);
+            @RequestParam(required = false) Long before_ms,
+            @RequestParam(defaultValue = "30") int limit) {
+        List<Map<String, Object>> envs = state.getHistoryPage(channel_id, root_envelope_id, before_ms, limit);
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("envelopes", envs);
+        result.put("has_more", envs.size() >= limit);
+        return result;
     }
 }
