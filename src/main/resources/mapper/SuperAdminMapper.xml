@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.buzz.relay.store.SuperAdminMapper">
+
+    <resultMap id="superAdminRowMap" type="com.buzz.relay.store.SuperAdminRow">
+        <id     property="id"            column="id"/>
+        <result property="username"      column="username"/>
+        <result property="passwordHash"  column="password_hash"/>
+        <result property="displayName"   column="display_name"/>
+        <result property="enabled"       column="enabled"/>
+        <result property="createdAtMs"   column="created_at_ms"/>
+        <result property="lastLoginAtMs" column="last_login_at_ms"/>
+    </resultMap>
+
+    <insert id="insert" parameterType="com.buzz.relay.store.SuperAdminRow">
+        INSERT INTO relay_super_admins (username, password_hash, display_name, enabled, created_at_ms)
+        VALUES (#{row.username}, #{row.passwordHash}, #{row.displayName}, #{row.enabled}, #{row.createdAtMs})
+    </insert>
+
+    <select id="findByUsername" resultMap="superAdminRowMap">
+        SELECT * FROM relay_super_admins WHERE username = #{username}
+    </select>
+
+    <select id="findAll" resultMap="superAdminRowMap">
+        SELECT * FROM relay_super_admins ORDER BY created_at_ms ASC
+    </select>
+
+    <delete id="deleteByUsername">
+        DELETE FROM relay_super_admins WHERE username = #{username}
+    </delete>
+
+    <update id="updateLastLogin">
+        UPDATE relay_super_admins SET last_login_at_ms = #{lastLoginAtMs} WHERE username = #{username}
+    </update>
+
+    <update id="updatePassword">
+        UPDATE relay_super_admins SET password_hash = #{passwordHash} WHERE username = #{username}
+    </update>
+
+    <select id="countAll" resultType="long">
+        SELECT COUNT(*) FROM relay_super_admins
+    </select>
+
+</mapper>

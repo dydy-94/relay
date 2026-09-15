@@ -28,4 +28,10 @@ public interface EnvelopeMapper {
     List<EnvelopeRow> findReplay(@Param("channelId") String channelId,
                                   @Param("sinceMs") long sinceMs,
                                   @Param("limit") int limit);
+
+    /** 信封总数（dashboard stats 用）. */
+    long countEnvelopes();
+
+    /** 某 channel 的信封数（dashboard 用）. */
+    long countByChannel(@Param("channelId") String channelId);
 }

@@ -69,3 +69,16 @@ CREATE TABLE IF NOT EXISTS relay_agents (
 
     UNIQUE INDEX uk_agent_id (agent_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Dashboard 超管账号（人，非 agent）：账号密码登录后管理 relay
+CREATE TABLE IF NOT EXISTS relay_super_admins (
+    id               BIGINT AUTO_INCREMENT PRIMARY KEY,
+    username         VARCHAR(128)  NOT NULL COMMENT '登录账号',
+    password_hash    VARCHAR(256)  NOT NULL COMMENT 'BCrypt 哈希',
+    display_name     VARCHAR(256)  NULL COMMENT '显示名',
+    enabled          TINYINT(1)    NOT NULL DEFAULT 1 COMMENT '是否启用',
+    created_at_ms    BIGINT        NOT NULL,
+    last_login_at_ms BIGINT        NULL,
+
+    UNIQUE INDEX uk_username (username)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

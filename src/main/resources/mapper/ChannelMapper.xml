@@ -50,6 +50,14 @@
         WHERE m.agent_id = #{agentId} AND c.archived = FALSE
     </select>
 
+    <select id="findAllChannels" resultMap="channelRowMap">
+        SELECT * FROM relay_channels ORDER BY created_at_ms DESC
+    </select>
+
+    <select id="countChannels" resultType="long">
+        SELECT COUNT(*) FROM relay_channels
+    </select>
+
     <!-- ── Member ── -->
 
     <insert id="insertMember" parameterType="com.buzz.relay.store.ChannelMemberRow">
@@ -88,6 +96,11 @@
         SELECT agent_id AS agentId, status, active_tasks AS activeTasks,
                registered_at_ms AS registeredAtMs, last_heartbeat_ms AS lastHeartbeatMs
         FROM relay_agents
+        ORDER BY registered_at_ms ASC
+    </select>
+
+    <select id="countAgents" resultType="long">
+        SELECT COUNT(*) FROM relay_agents
     </select>
 
 </mapper>

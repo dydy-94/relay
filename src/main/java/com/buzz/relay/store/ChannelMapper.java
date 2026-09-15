@@ -22,6 +22,12 @@ public interface ChannelMapper {
     /** 查询 agent 加入的所有 channel. */
     List<ChannelRow> findChannelsByAgent(@Param("agentId") String agentId);
 
+    /** 查询所有 channel（含 archived，dashboard 用）. */
+    List<ChannelRow> findAllChannels();
+
+    /** channel 总数. */
+    long countChannels();
+
     // ── Member ──
 
     /** 插入成员关系（UNIQUE 约束防重复）. */
@@ -53,4 +59,9 @@ public interface ChannelMapper {
 
     /** 查询所有已注册 agent. */
     List<java.util.Map<String, Object>> findAllAgents();
+
+    // ── Stats ──
+
+    /** agent 总数. */
+    long countAgents();
 }

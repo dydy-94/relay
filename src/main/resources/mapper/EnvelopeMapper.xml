@@ -57,4 +57,12 @@
         LIMIT #{limit}
     </select>
 
+    <select id="countEnvelopes" resultType="long">
+        SELECT COUNT(*) FROM relay_envelopes
+    </select>
+
+    <select id="countByChannel" resultType="long">
+        SELECT COUNT(*) FROM relay_envelopes WHERE channel_id = #{channelId}
+    </select>
+
 </mapper>

@@ -1,7 +1,9 @@
 package com.buzz.relay.api;
 
+import com.buzz.relay.auth.AdminAuthService;
 import com.buzz.relay.relay.RelayState;
 import com.buzz.relay.store.ChannelRow;
+import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -10,22 +12,84 @@ import java.util.*;
 /**
  * REST API — Channel 管理.
  *
- * POST /api/channels                 — 创建 channel（creator_agent_id 成为首个 admin）
- * POST /api/channels/add_member      — 添加成员（需 admin，body 携带 actor_agent_id）
- * POST /api/channels/remove_member    — 移除成员（需 admin，body 携带 actor_agent_id）
+ * POST   /api/channels                    — 创建 channel（creator_agent_id 成为首个 admin）
+ * POST   /api/channels/add_member         — 添加成员（需 admin，body 携带 actor_agent_id）
+ * POST   /api/channels/remove_member      — 移除成员（需 admin，body 携带 actor_agent_id）
  *
  * 权限模型：管理操作（增删成员 / 更新频道元信息）仅 admin 可执行。
  * REST 无独立认证，操作者身份通过 body 中的 actor_agent_id 标识
  * （可信内部网络，与 WS agent_id 同一信任模型）。
+ *
+ * Dashboard 接口（超管账号视角，header X-Agent-Id 携带登录账号 id）：
+ * GET    /api/channels                    — 频道列表：超管账号返回全部；否则返回本人加入的
+ * GET    /api/channels/{channel_id}       — 频道详情（含成员 + 信封数；超管账号或成员）
+ * POST   /api/channels/{channel_id}/archive — 归档 / 取消归档（channel admin 或超管账号）
  */
 @RestController
 @RequestMapping("/api/channels")
 public class ChannelController {
 
     private final RelayState state;
+    private final AdminAuthService authService;
 
-    public ChannelController(RelayState state) {
+    public ChannelController(RelayState state, AdminAuthService authService) {
         this.state = state;
+        this.authService = authService;
+    }
+
+    @GetMapping
+    public ResponseEntity<Map<String, Object>> listChannels(HttpServletRequest request) {
+        String actor = ApiUtils.resolveActor(request);
+        if (actor.isBlank()) return badRequest("actor required (X-Agent-Id header)");
+
+        List<ChannelRow> rows = authService.isValidAdmin(actor)
+                ? state.getAllChannels()
+                : state.getChannelsByAgent(actor);
+        List<Map<String, Object>> list = new ArrayList<>();
+        for (ChannelRow ch : rows) {
+            list.add(state.channelListMap(ch));
+        }
+        return ResponseEntity.ok(Map.of("channels", list));
+    }
+
+    @GetMapping("/{channelId}")
+    public ResponseEntity<Map<String, Object>> getChannel(@PathVariable String channelId,
+                                                          HttpServletRequest request) {
+        String actor = ApiUtils.resolveActor(request);
+        if (actor.isBlank()) return badRequest("actor required (X-Agent-Id header)");
+
+        ChannelRow ch = state.getChannel(channelId);
+        if (ch == null) {
+            return ResponseEntity.status(404).body(Map.of("ok", false, "error", "NOT_FOUND",
+                    "message", "channel not found"));
+        }
+        // 超管账号可读任意频道；普通用户需为成员
+        if (!authService.isValidAdmin(actor) && !state.isMember(channelId, actor)) {
+            return forbidden("not a member");
+        }
+        return ResponseEntity.ok(state.channelDetailMap(ch));
+    }
+
+    @PostMapping("/{channelId}/archive")
+    public ResponseEntity<Map<String, Object>> archiveChannel(@PathVariable String channelId,
+                                                              @RequestBody Map<String, Object> body,
+                                                              HttpServletRequest request) {
+        // actor 来源：header X-Agent-Id（超管账号）优先，其次 body actor_agent_id（channel admin/agent）
+        String actor = ApiUtils.resolveActor(request);
+        if (actor.isBlank()) {
+            actor = (String) body.getOrDefault("actor_agent_id", "");
+        }
+        boolean archived = body.get("archived") == null || Boolean.TRUE.equals(body.get("archived"));
+        // 超管账号 或 channel admin 可归档
+        if (!authService.isValidAdmin(actor) && !state.isAdmin(channelId, actor)) {
+            return forbidden("admin required to archive channel");
+        }
+        ChannelRow ch = state.archiveChannel(channelId, archived);
+        Map<String, Object> res = new LinkedHashMap<>();
+        res.put("ok", true);
+        res.put("channel_id", channelId);
+        res.put("archived", ch.isArchived());
+        return ResponseEntity.ok(res);
     }
 
     @PostMapping

@@ -46,6 +46,7 @@ public class RelayState {
 
     private final EnvelopeMapper envelopeMapper;
     private final ChannelMapper channelMapper;
+    private final SuperAdminMapper superAdminMapper;
 
     // Redis — 跨实例广播 + presence
     private static final String PRESENCE_KEY_PREFIX = "relay:presence:";
@@ -54,9 +55,11 @@ public class RelayState {
     // 每 JVM 唯一标识，用于跨实例广播回环保护 + presence 归属判断
     private final String instanceId = UUID.randomUUID().toString();
 
-    public RelayState(EnvelopeMapper envelopeMapper, ChannelMapper channelMapper, StringRedisTemplate redis) {
+    public RelayState(EnvelopeMapper envelopeMapper, ChannelMapper channelMapper,
+                      SuperAdminMapper superAdminMapper, StringRedisTemplate redis) {
         this.envelopeMapper = envelopeMapper;
         this.channelMapper = channelMapper;
+        this.superAdminMapper = superAdminMapper;
         this.redis = redis;
     }
 
@@ -368,6 +371,65 @@ public class RelayState {
         info.put("archived", ch.isArchived());
         info.put("is_dm", "dm".equals(ch.getChannelType()));
         return info;
+    }
+
+    // ── Dashboard（超管视角）──
+
+    /**
+     * 查询所有 channel（含 archived）.
+     */
+    public List<ChannelRow> getAllChannels() {
+        return channelMapper.findAllChannels();
+    }
+
+    /**
+     * 构建 channel 列表项（基础字段 + 成员数 + 信封数）.
+     */
+    public Map<String, Object> channelListMap(ChannelRow ch) {
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("channel_id", ch.getChannelId());
+        m.put("name", ch.getName());
+        m.put("channel_type", ch.getChannelType());
+        m.put("visibility", ch.getVisibility());
+        m.put("description", ch.getDescription() != null ? ch.getDescription() : "");
+        m.put("archived", ch.isArchived());
+        m.put("created_at_ms", ch.getCreatedAtMs());
+        m.put("member_count", channelMapper.findMembers(ch.getChannelId()).size());
+        m.put("envelope_count", envelopeMapper.countByChannel(ch.getChannelId()));
+        return m;
+    }
+
+    /**
+     * 构建 channel 详情（channel_info + 信封数）.
+     */
+    public Map<String, Object> channelDetailMap(ChannelRow ch) {
+        Map<String, Object> m = channelInfoMap(ch);
+        m.put("envelope_count", envelopeMapper.countByChannel(ch.getChannelId()));
+        return m;
+    }
+
+    /**
+     * 归档 / 取消归档 channel.
+     */
+    public ChannelRow archiveChannel(String channelId, boolean archived) {
+        ChannelRow ch = getOrCreateChannel(channelId);
+        ch.setArchived(archived);
+        channelMapper.updateChannel(ch);
+        return ch;
+    }
+
+    /**
+     * 超管统计总览（dashboard 首页）.
+     */
+    public Map<String, Object> getStats() {
+        Map<String, Object> s = new LinkedHashMap<>();
+        s.put("instance_id", instanceId);
+        s.put("envelope_count", envelopeMapper.countEnvelopes());
+        s.put("channel_count", channelMapper.countChannels());
+        s.put("agent_count", channelMapper.countAgents());
+        s.put("super_admin_count", superAdminMapper.countAll());
+        s.put("online_agent_count", getOnlineAgents().size());
+        return s;
     }
 
     // ── Agent 心跳 ──

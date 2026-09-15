@@ -33,8 +33,20 @@
 | HTTP POST | `http://host:3000/api/channels` | 创建 / 更新 Channel（新频道 creator 自动成为 admin；更新已存在频道需 admin） |
 | HTTP POST | `http://host:3000/api/channels/add_member` | 添加 Channel 成员（需 admin，body 携带 actor_agent_id） |
 | HTTP POST | `http://host:3000/api/channels/remove_member` | 移除 Channel 成员（需 admin，body 携带 actor_agent_id） |
+| HTTP POST | `http://host:3000/api/auth/login` | 超管账号登录（body: `{username, password}`，BCrypt 校验） |
+| HTTP GET | `http://host:3000/api/channels` | Channel 列表（超管账号返回全部；普通 agent 返回本人加入的，含成员数/信封数） |
+| HTTP GET | `http://host:3000/api/channels/{channel_id}` | Channel 详情（含成员 + 信封数；超管账号或频道成员） |
+| HTTP POST | `http://host:3000/api/channels/{channel_id}/archive` | 归档 / 取消归档（channel admin 或超管账号） |
+| HTTP GET | `http://host:3000/api/agents` | 全部 Agent 列表（含在线状态；仅超管账号） |
+| HTTP GET | `http://host:3000/api/admin/stats` | 全局统计总览（信封/channel/agent/超管/在线数；仅超管账号） |
+| HTTP GET | `http://host:3000/api/admin/accounts` | 超管账号列表（仅超管账号） |
+| HTTP POST | `http://host:3000/api/admin/accounts` | 创建超管账号（body: `{username, password, display_name}`） |
+| HTTP DELETE | `http://host:3000/api/admin/accounts/{username}` | 删除超管账号 |
+| HTTP POST | `http://host:3000/api/admin/accounts/{username}/password` | 重置超管账号密码（body: `{password}`） |
 
 > **设计决策**：WebSocket 挂载于 `/ws`，agent_id 通过 query param 传入，由 `AgentIdHandshakeInterceptor` 在握手阶段提取并存入 session attributes。REST API 用于管理操作和 HTTP 信封注入（支持非 WS 客户端）。
+>
+> **REST 操作者身份**：POST body 携带 `actor_agent_id`（向后兼容）；GET 请求通过 Header `X-Agent-Id` 或 query 参数 `actor_agent_id` 声明操作者。Dashboard 管理接口使用**超管账号**：前端登录后把账号 id 放进 Header `X-Agent-Id`，服务端查 `relay_super_admins` 表校验（见 §4.10）。
 
 ### 1.3 配置项（来源：[application.properties](file:///Users/cdy/opensource/relay/src/main/resources/application.properties)）
 
@@ -238,6 +250,18 @@ ChatEnvelope.newEnvelope(kind, senderId, senderRole, channelId)
 | `active_tasks` | INT | 活跃任务数 |
 | `last_heartbeat_ms` | BIGINT | 最后心跳时间 |
 
+#### relay_super_admins 表（超管账号 — 人，非 agent）
+| 列 | 类型 | 说明 |
+|----|------|------|
+| `username` | VARCHAR(128) | 登录账号（UNIQUE） |
+| `password_hash` | VARCHAR(256) | BCrypt 密码哈希 |
+| `display_name` | VARCHAR(256) | 显示名 |
+| `enabled` | TINYINT(1) | 是否启用（1=可用，0=禁用） |
+| `created_at_ms` | BIGINT | 创建时间 |
+| `last_login_at_ms` | BIGINT | 最近登录时间 |
+
+> **启动 bootstrap**：表为空时自动创建首个账号 `admin / admin123`（[AdminAuthService](file:///Users/cdy/opensource/relay/src/main/java/com/buzz/relay/auth/AdminAuthService.java) `ApplicationRunner`），生产环境启动后应立即改密。账号也可通过运维直接写库或 `POST /api/admin/accounts` 管理。
+
 ### 4.4 MyBatis Mapper
 
 #### EnvelopeMapper — [EnvelopeMapper.java](file:///Users/cdy/opensource/relay/src/main/java/com/buzz/relay/store/EnvelopeMapper.java) + [EnvelopeMapper.xml](file:///Users/cdy/opensource/relay/src/main/resources/mapper/EnvelopeMapper.xml)
@@ -264,6 +288,18 @@ ChatEnvelope.newEnvelope(kind, senderId, senderRole, channelId)
 | `insertAgent` | `INSERT IGNORE` 注册 agent（幂等） |
 | `updateHeartbeat` | 更新心跳状态 |
 | `findAllAgents` | 查所有已注册 agent |
+
+#### SuperAdminMapper — [SuperAdminMapper.java](file:///Users/cdy/opensource/relay/src/main/java/com/buzz/relay/store/SuperAdminMapper.java) + [SuperAdminMapper.xml](file:///Users/cdy/opensource/relay/src/main/resources/mapper/SuperAdminMapper.xml)
+
+| 方法 | SQL | 说明 |
+|------|-----|------|
+| `insert` | INSERT INTO relay_super_admins ... | 插入账号（username 唯一键冲突由调用方处理） |
+| `findByUsername` | SELECT ... WHERE username = ? | 按账号查（登录 / header 校验） |
+| `findAll` | SELECT ... ORDER BY created_at_ms ASC | 账号列表 |
+| `deleteByUsername` | DELETE ... WHERE username = ? | 删除账号 |
+| `updateLastLogin` | UPDATE ... SET last_login_at_ms = ? | 登录成功后记录时间 |
+| `updatePassword` | UPDATE ... SET password_hash = ? | 重置密码 |
+| `countAll` | SELECT COUNT(*) | 账号总数（stats） |
 
 ### 4.5 全局状态管理器 — [RelayState.java](file:///Users/cdy/opensource/relay/src/main/java/com/buzz/relay/relay/RelayState.java)
 
@@ -431,6 +467,7 @@ session.getAttributes().put("agentId", "my-agent-001")
 | 端点 | 方法 | 说明 |
 |------|------|------|
 | `GET /health` | health() | 返回 `{ok, instance_id, agents, online_agents}` — agents 为 MySQL 已注册 agent，online_agents 为 Redis presence 聚合 |
+| `GET /api/agents` | listAgents() | Dashboard：全部 agent 列表，合并 Redis presence 的 `online` 字段（仅超管账号，header 校验） |
 | `POST /agent/register` | register() | 注册 agent（capabilities/rules 序列化为 JSON） |
 | `POST /agent/heartbeat` | heartbeat() | 更新心跳状态 |
 
@@ -448,8 +485,69 @@ session.getAttributes().put("agentId", "my-agent-001")
 | `POST /api/channels` | createChannel() | 创建 / 更新 channel（新频道 creator 自动成为首个 admin；更新已存在频道需 admin） |
 | `POST /api/channels/add_member` | addMember() | 添加成员（需 admin，body 携带 actor_agent_id 标识操作者） |
 | `POST /api/channels/remove_member` | removeMember() | 移除成员（需 admin） |
+| `GET /api/channels` | listChannels() | 频道列表：超管账号返回全部（含 archived）；普通 agent 返回本人加入的（均含 member_count / envelope_count） |
+| `GET /api/channels/{channel_id}` | getChannel() | 频道详情：`channel_info` + `envelope_count`（超管账号或频道成员） |
+| `POST /api/channels/{channel_id}/archive` | archiveChannel() | 归档 / 取消归档（channel admin 或超管账号） |
 
-> 管理操作失败时返回 `403 FORBIDDEN`；参数缺失返回 `400 BAD_REQUEST`。
+> 管理操作失败时返回 `403 FORBIDDEN`；参数缺失返回 `400 BAD_REQUEST`；频道不存在返回 `404 NOT_FOUND`。
+
+#### [AuthController.java](file:///Users/cdy/opensource/relay/src/main/java/com/buzz/relay/api/AuthController.java)
+
+| 端点 | 方法 | 说明 |
+|------|------|------|
+| `POST /api/auth/login` | login() | 超管账号登录：BCrypt 校验 username + password；成功更新 `last_login_at_ms` 并返回 `{ok, username, display_name, enabled, last_login_at_ms}`；失败 `403` |
+
+#### [AdminController.java](file:///Users/cdy/opensource/relay/src/main/java/com/buzz/relay/api/AdminController.java)
+
+| 端点 | 方法 | 说明 |
+|------|------|------|
+| `GET /api/admin/stats` | stats() | 全局统计：`{instance_id, envelope_count, channel_count, agent_count, super_admin_count, online_agent_count}` |
+| `GET /api/admin/accounts` | listAccounts() | 超管账号列表（username / display_name / enabled / created_at_ms / last_login_at_ms） |
+| `POST /api/admin/accounts` | createAccount() | 创建账号 `{username, password, display_name}`（重复 → 409） |
+| `DELETE /api/admin/accounts/{username}` | deleteAccount() | 删除账号（不能删除当前登录账号） |
+| `POST /api/admin/accounts/{username}/password` | resetPassword() | 重置账号密码 `{password}` |
+
+所有 Admin 接口（以及 `GET /api/agents`、`GET /api/channels*` 的超管路径）要求调用者是**已登录的超管账号**：header `X-Agent-Id` 携带账号 id，服务端经 `AdminAuthService.isValidAdmin` 查 `relay_super_admins` 表（存在且 enabled），否则 `403 FORBIDDEN`。
+
+### 4.10 超级管理员（账号体系）
+
+超管（super admin）是**人**（运维 / 管理员），通过**账号密码登录 Dashboard**，账号存于 `relay_super_admins` 表。与频道级 `admin`（channel role，agent 身份）正交：频道 admin 只能管理自己的频道；超管可管理**任意**频道与全局资源。
+
+> **与早期版本的区别**：超管**不是** agent 标记（`relay_agents.super_admin`），而是独立账号（`relay_super_admins`）。这是关键方向修正——Dashboard 的登录者是人，不经过 agent WebSocket 通道。
+
+#### 登录
+
+`POST /api/auth/login`（[AuthController](file:///Users/cdy/opensource/relay/src/main/java/com/buzz/relay/api/AuthController.java)）：
+- body: `{username, password}`
+- [AdminAuthService](file:///Users/cdy/opensource/relay/src/main/java/com/buzz/relay/auth/AdminAuthService.java) 用 **BCrypt**（`BCryptPasswordEncoder`，依赖 `spring-security-crypto`）校验 `password_hash`，并要求 `enabled=1`
+- 成功更新 `last_login_at_ms`，返回 `{ok, username, display_name, enabled, last_login_at_ms}`
+- 失败返回 `403 FORBIDDEN`
+
+#### 管理接口鉴权（按用户要求保持简单）
+
+**不做 token / session / filter**。前端登录后把账号 id 放进 Header `X-Agent-Id`，服务端 `AdminAuthService.isValidAdmin(accountId)` 查表校验（存在且 enabled）：
+
+```http
+GET /api/admin/stats
+X-Agent-Id: admin
+```
+
+覆盖接口：`/api/admin/*`、`GET /api/agents`，以及 `/api/channels*` 的超管路径（频道列表返回全部 / 读取任意 private 详情 / 归档任意频道）。
+
+#### 账号管理
+
+- **启动 bootstrap**：`AdminAuthService`（`ApplicationRunner`）在表为空时自动创建 `admin / admin123`，生产环境启动后应立即改密。
+- **账号 CRUD**：`POST /api/admin/accounts`（创建）、`GET /api/admin/accounts`（列表）、`DELETE /api/admin/accounts/{username}`（删除，禁止删自身）、`POST /api/admin/accounts/{username}/password`（重置密码）。也可运维直接写库。
+- **多账号**：可创建多个账号，均具有同等超管权限；通过 `enabled` 字段启停。
+
+#### 设计取舍
+
+- **账号体系而非 agent 标记**：Dashboard 登录者是"人"，账号密码登录 + header 账号校验即可满足管理诉求；不引入 session/token 复杂度。
+- **数据库配置**：账号存 MySQL，分布式下所有实例读同一数据库天然一致，也便于 Dashboard 后台管理。
+- **超管可跨频道管理**：支持消息治理 / 代发 / 归档等运营操作；channel 级管理仍由频道 admin（agent）负责。
+- **首个超管自动 bootstrap**：解决自举问题（无需先手工写库，但默认密码需立即修改）。
+
+---
 
 ### 4.9 Channel 权限模型
 
@@ -625,6 +723,7 @@ REST Client                    Relay                          WS Client (成员)
 | Redis Presence | agent 在线状态存 `relay:presence:{agent_id}`（TTL 60s 兜底），跨实例聚合；断开时仅归属本实例才清理 |
 | open/private 可见性 + admin/member 角色 | private 频道仅成员可订阅 / 发布；管理操作（增删成员 / 更新元信息）仅 admin；首个成员固定 admin，避免"无主频道"无法被管理 |
 | `actor_agent_id` 操作者声明 | REST 无独立认证（可信内部网络），管理操作通过 body 的 `actor_agent_id` 声明操作者并校验 admin，与 WS agent_id 同一信任模型 |
+| 超管账号（人）+ header 鉴权 | Dashboard 登录者为"人"：账号密码（BCrypt）存 `relay_super_admins`；管理接口不做 token/session，前端 header `X-Agent-Id` 带账号 id，服务端查表校验（存在且 enabled） |
 | `INSERT IGNORE` 语义 | channel 创建、成员加入、agent 注册都是幂等操作，重复调用不报错 |
 | tags JSON 列 | mentions / payload / metadata 用 JSON 列存储，MyBatis 处理为 String，Java 层反序列化 |
 | 无签名验证 | ACP relay 是可信内部服务，agent_id 由连接层标识，不需要密码学认证 |
@@ -635,7 +734,7 @@ REST Client                    Relay                          WS Client (成员)
 
 ### E2E 测试 — [acp_relay_e2e_test.py](file:///tmp/acp_relay_e2e_test.py)
 
-Python + websocket-client + requests，25 项测试覆盖完整协议流程：
+Python + websocket-client + requests，41 项测试覆盖完整协议流程：
 
 | # | 测试 | 验证点 |
 |---|------|--------|
@@ -650,9 +749,10 @@ Python + websocket-client + requests，25 项测试覆盖完整协议流程：
 | 9 | REST /api/history | 返回历史信封列表 |
 | 10 | agent register | REST 注册 agent 成功 |
 | 11 | Channel 权限（private + admin） | 创建者 admin；非成员订阅 private → FORBIDDEN；非 admin add/remove_member → 403；admin 操作 → 200；非成员 publish → FORBIDDEN；admin 更新频道 → 200 / 非 admin → 403 |
+| 12 | 超管账号（登录 + header 鉴权 + 账号管理） | bootstrap 账号登录 200 / 错密码 403；stats 带账号 header 200（含 super_admin_count）/ 非账号 403；accounts 列表含 admin；创建账号 200 → 新账号可登录；非账号创建 → 403；删除账号 200；超管账号读他人 private 详情 200 / 非账号 403；超管账号归档任意频道 200 / channel admin 可取消归档；agents 列表带 online 字段；频道列表含全部频道 |
 
 ```
-=== Results: 25 passed, 0 failed ===
+=== Results: 41 passed, 0 failed ===
 ALL TESTS PASSED
 ```
 
